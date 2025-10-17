@@ -1,33 +1,52 @@
-name: Deploy PHP App to Server
+name: Deploy APP1
 
 on:
   push:
-    branches:
-      - main
+    branches: [ "main" ]
+
+concurrency:
+  group: app1-deploy
+  cancel-in-progress: true
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout code
+      - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
 
-      - name: Setup SSH Key
-        run: |
-          mkdir -p ~/.ssh
-          echo "${{ secrets.SSH_KEY }}" > ~/.ssh/id_ed25519
-          chmod 600 ~/.ssh/id_ed25519
-          ssh-keyscan -H ${{ secrets.SSH_HOST }} >> ~/.ssh/known_hosts
+      - name: Setup SSH key
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.SSH_KEY }}
 
-      - name: Deploy files to server
+      - name: Ensure target directory exists
         run: |
-          rsync -avz --delete \
-            --exclude '.git' \
-            --exclude '.github' \
-            ./ ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}:${{ secrets.APP_DIR }}/
+          ssh -o StrictHostKeyChecking=no \
+          ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }} \
+          "mkdir -p '${{ secrets.APP_DIR }}'"
 
-      - name: Restart Nginx and PHP-FPM
+      - name: Deploy files via rsync (clean & safe)
         run: |
-          ssh -i ~/.ssh/id_ed25519 ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }} \
-          "sudo systemctl restart nginx && sudo systemctl restart php8.1-fpm"
+          rsync -az --delete \
+          --no-perms --no-group --omit-dir-times \
+          --exclude '.git' \
+          --exclude '.github' \
+          --exclude '.gitignore' \
+          -e "ssh -o StrictHostKeyChecking=no" \
+          ./ ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}:${{ secrets.APP_DIR }}/
+
+      - name: Reload nginx
+        run: |
+          ssh -o StrictHostKeyChecking=no \
+          ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }} \
+          "sudo nginx -t && sudo systemctl reload nginx"
+
+      - name: Health check (port 80)
+        run: |
+          ssh -o StrictHostKeyChecking=no \
+          ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }} \
+          "curl -sSIL -m 5 http://localhost:80 | head -n1"
