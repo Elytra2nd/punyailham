@@ -13,7 +13,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout
+      - name: Checkout repository
         uses: actions/checkout@v4
         with:
           fetch-depth: 1
@@ -23,30 +23,35 @@ jobs:
         with:
           ssh-private-key: ${{ secrets.SSH_KEY }}
 
-      - name: Ensure target directory exists
+      - name: Ensure target directory exists on remote
         run: |
           ssh -o StrictHostKeyChecking=no \
-          ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }} \
-          "mkdir -p '${{ secrets.APP_DIR }}'"
+            ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }} \
+            "mkdir -p '${{ secrets.APP_DIR }}'"
 
       - name: Deploy files via rsync (clean & safe)
         run: |
           rsync -az --delete \
-          --no-perms --no-group --omit-dir-times \
-          --exclude '.git' \
-          --exclude '.github' \
-          --exclude '.gitignore' \
-          -e "ssh -o StrictHostKeyChecking=no" \
-          ./ ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}:${{ secrets.APP_DIR }}/
+            --no-perms --no-group --omit-dir-times \
+            --exclude '.git' \
+            --exclude '.github' \
+            --exclude '.gitignore' \
+            -e "ssh -o StrictHostKeyChecking=no" \
+            ./ ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}:${{ secrets.APP_DIR }}/
+          
+          echo "✅ Deployment finished. Checking files on remote server..."
+          ssh -o StrictHostKeyChecking=no \
+            ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }} \
+            "ls -l '${{ secrets.APP_DIR }}'"
 
-      - name: Reload nginx
+      - name: Reload Nginx
         run: |
           ssh -o StrictHostKeyChecking=no \
-          ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }} \
-          "sudo nginx -t && sudo systemctl reload nginx"
+            ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }} \
+            "sudo nginx -t && sudo systemctl reload nginx"
 
       - name: Health check (port 80)
         run: |
           ssh -o StrictHostKeyChecking=no \
-          ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }} \
-          "curl -sSIL -m 5 http://localhost:80 | head -n1"
+            ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }} \
+            "curl -sSIL -m 5 http://localhost:80 | head -n1"
